@@ -23,6 +23,7 @@ SMODS.Back {
     pos = { x = 0, y = 0 },
     config = {
         joker_slot = 1e100,
+		consumable_slot = 1e100,
         vouchers = { 'v_overstock_plus' },
     },
     loc_txt = {
@@ -36,7 +37,7 @@ SMODS.Back {
     },
     apply = function(self)
         G.E_MANAGER:add_event(Event({ func = function()
-            G.consumeables.config.card_limit = 1e100
+            G.consumeables.config.card_limit = math.huge
             local soul = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_soul', 'sandbox_deck')
             soul:add_to_deck()
             G.consumeables:emplace(soul)
