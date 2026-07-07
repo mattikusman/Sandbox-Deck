@@ -4,7 +4,7 @@
 --- MOD_AUTHOR: [M-That-One : Extracted from Mayhem]
 --- MOD_DESCRIPTION: Adds the Sandbox Deck from Mayhem as standalone deck back. Massive joker/consumable slots, pick all cards from packs, starts with Overstock Plus and a Negative Soul.
 --- PRIORITY: 0
---- VERSION: 4.2.0.3
+--- VERSION: 4.2.0.4
 
 SMODS.Atlas {key = "modicon",path = "icon.png",px = 17,py = 17,}:register()
 
@@ -31,15 +31,15 @@ SMODS.Back {
     config = {
         joker_slot = 1e100,
 		consumable_slot = 1e100,
-        vouchers = { 'v_overstock_plus' },
+        vouchers = { 'v_overstock_norm' },
     },
     loc_txt = {
         name = 'Sandbox Deck',
         text = {
             '{C:attention}+1e100{} Joker and Consumable Slots',
             'You can select {C:green}all cards{} from {C:attention}Booster Packs{}',
-            'Start run with {C:attention}Overstock Plus{}',
-            'and a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
+            'Start run with {C:attention}Overstock{}',
+            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
         },
     },
     apply = function(self)
@@ -70,7 +70,7 @@ SMODS.Back {
 		discards = 1e100,
         joker_slot = 1e100,
 		consumable_slot = 1e100,
-        vouchers = { 'v_overstock_plus' },
+        vouchers = { 'v_overstock_norm','v_overstock_plus' },
     },
     loc_txt = {
         name = 'Creative Mode Deck',
@@ -78,8 +78,8 @@ SMODS.Back {
             '{C:attention}+1e100{} Joker and Consumable Slots',
 			'{C:red}+1e100{} Discards and {C:blue}+1e100{} hands',
             'You can select {C:green}all cards{} from {C:attention}Booster Packs{}',
-            'Start run with {C:attention}Overstock Plus{}',
-            'and a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
+            'Start run with {C:attention}Overstock and Overstock Plus{}',
+            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
         },
     },
     apply = function(self)
