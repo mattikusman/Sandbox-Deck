@@ -56,7 +56,7 @@ love.update = function(dt)
     local f5 = (math.sin(_anim_t * 1.2 + 4.4) + 1) / 2
 
     -- red <-> light pink
-	
+
     G.C.ANIM_JOKER[1] = 1
     G.C.ANIM_JOKER[2] = lerp(0,   0.6, f1)
     G.C.ANIM_JOKER[3] = lerp(0,   0.6, f1)
@@ -68,19 +68,19 @@ love.update = function(dt)
     G.C.ANIM_CONSM[3] = 0
 
     -- green <-> light green
-	
+
     G.C.ANIM_CARDS[1] = lerp(0.2, 0.6, f3)
     G.C.ANIM_CARDS[2] = lerp(0.9, 1,   f3)
     G.C.ANIM_CARDS[3] = lerp(0.2, 0.6, f3)
 
     -- purple <-> red
-	
+
     G.C.ANIM_OVST[1] = lerp(0.6, 1,   f4)
     G.C.ANIM_OVST[2] = 0
     G.C.ANIM_OVST[3] = lerp(0.9, 0,   f4)
 
     -- dark grey <-> light grey (deck name)
-	
+
     local v = lerp(0.25, 0.75, f5)
     G.C.ANIM_DICE[1] = v
     G.C.ANIM_DICE[2] = v
@@ -124,7 +124,7 @@ SMODS.Back {
             '{C:anim_joker}+1e100 Joker{} and {C:anim_consm}+1e100 Consumable{} Slots',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{}',
-            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
+            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
         },
     },
     apply = function(self)
@@ -134,6 +134,12 @@ SMODS.Back {
             soul:add_to_deck()
             G.consumeables:emplace(soul)
             soul:set_edition({ negative = true }, true)
+            if next(SMODS.find_mod('mayhem')) then
+                local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'sandbox_deck')
+                genesis:add_to_deck()
+                G.consumeables:emplace(genesis)
+                genesis:set_edition({ negative = true }, true)
+            end
         return true end }))
     end,
     calculate = function(self, card, context)
@@ -164,16 +170,22 @@ SMODS.Back {
             '{C:red}+1e100{} Discards and {C:blue}+1e100{} Hands',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{} and {C:anim_ovst}Overstock Plus{}',
-            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
+            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
         },
     },
     apply = function(self)
         G.E_MANAGER:add_event(Event({ func = function()
             G.consumeables.config.card_limit = math.huge
-            local soul = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_soul', 'creative_mode_deck/')
+            local soul = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_soul', 'creative_mode_deck')
             soul:add_to_deck()
             G.consumeables:emplace(soul)
             soul:set_edition({ negative = true }, true)
+            if next(SMODS.find_mod('mayhem')) then
+                local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'creative_mode_deck')
+                genesis:add_to_deck()
+                G.consumeables:emplace(genesis)
+                genesis:set_edition({ negative = true }, true)
+            end
         return true end }))
     end,
     calculate = function(self, card, context)
@@ -203,7 +215,7 @@ SMODS.Back {
             '{C:anim_joker}+1e100 Joker{} and {C:anim_consm}+1e100 Consumable{} Slots',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{} and {C:anim_ovst}Overstock Plus{}',
-            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
+            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
             '{C:money}20${} and {C:legendary}+8{} Pack Size',
             'All {C:attention}cards{} in {C:attention}shop{} are {C:attention}50%{} {C:money}cheaper{}',
         },
@@ -220,6 +232,12 @@ SMODS.Back {
             soul:add_to_deck()
             G.consumeables:emplace(soul)
             soul:set_edition({ negative = true }, true)
+            if next(SMODS.find_mod('mayhem')) then
+                local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'Child_of_the_Dice_Deck')
+                genesis:add_to_deck()
+                G.consumeables:emplace(genesis)
+                genesis:set_edition({ negative = true }, true)
+            end
             return true
         end }))
     end,
