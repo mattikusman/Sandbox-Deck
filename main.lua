@@ -41,6 +41,72 @@ DynaText.init = function(self, config)
     return orig_DynaText_init(self, config)
 end
 
+-- Canvas-based animated deck texture for Child of the Dice Deck.
+-- Crossfades between deck.png and creative_mode_deck.png.
+--
+-- G.ASSET_ATLAS keys are prefixed by the mod's SMODS prefix.
+-- We derive the prefix by searching for 'dice_anim' (unique to our mod),
+-- then use that same prefix for all three atlas lookups — no ambiguity.
+
+local _dice_canvas = nil
+local _dice_atlas  = nil
+local _dice_img1   = nil
+local _dice_img2   = nil
+
+local function find_our_mod_prefix()
+    if not G.ASSET_ATLAS then return nil end
+    -- no-prefix case: key is exactly 'dice_anim'
+    if G.ASSET_ATLAS['dice_anim'] then return '' end
+    -- prefixed case: key is '{prefix}_dice_anim'
+    local sfx = '_dice_anim'
+    for k in pairs(G.ASSET_ATLAS) do
+        if #k > #sfx and k:sub(-#sfx) == sfx then
+            return k:sub(1, #k - #sfx)   -- e.g. 'SandboxDeck'
+        end
+    end
+    return nil  -- atlases not loaded yet
+end
+
+local function init_dice_canvas()
+    if _dice_canvas then return end
+    local prefix = find_our_mod_prefix()
+    if prefix == nil then return end
+
+    local function ga(base)
+        return G.ASSET_ATLAS[(prefix == '') and base or (prefix .. '_' .. base)]
+    end
+
+    local da = ga('dice_anim')
+    local d1 = ga('deck')
+    local d2 = ga('creative_mode_deck')
+    if not (da and d1 and d2 and d1.image and d2.image) then return end
+
+    _dice_atlas  = da
+    _dice_img1   = d1.image
+    _dice_img2   = d2.image
+    _dice_canvas = love.graphics.newCanvas(71, 95)
+    _dice_atlas.image = _dice_canvas
+end
+
+local function update_dice_canvas(blend)
+    -- Save graphics state so we don't disturb the game's rendering
+    local r, g, b, a = love.graphics.getColor()
+    local bm, bma    = love.graphics.getBlendMode()
+
+    love.graphics.setCanvas(_dice_canvas)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.setBlendMode('alpha')
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(_dice_img1)
+    love.graphics.setColor(1, 1, 1, blend)
+    love.graphics.draw(_dice_img2)
+    love.graphics.setCanvas()
+
+    -- Restore
+    love.graphics.setBlendMode(bm, bma)
+    love.graphics.setColor(r, g, b, a)
+end
+
 -- Animate all color tables every frame
 
 local _anim_t = 0
@@ -54,37 +120,39 @@ love.update = function(dt)
     local f3 = (math.sin(_anim_t + 2.2) + 1) / 2
     local f4 = (math.sin(_anim_t + 3.3) + 1) / 2
     local f5 = (math.sin(_anim_t * 1.2 + 4.4) + 1) / 2
+    local f6 = (math.sin(_anim_t * 0.6) + 1) / 2   -- slow crossfade
 
     -- red <-> light pink
-
     G.C.ANIM_JOKER[1] = 1
     G.C.ANIM_JOKER[2] = lerp(0,   0.6, f1)
     G.C.ANIM_JOKER[3] = lerp(0,   0.6, f1)
 
     -- yellow <-> orange
-
     G.C.ANIM_CONSM[1] = 1
     G.C.ANIM_CONSM[2] = lerp(0.9, 0.5, f2)
     G.C.ANIM_CONSM[3] = 0
 
     -- green <-> light green
-
     G.C.ANIM_CARDS[1] = lerp(0.2, 0.6, f3)
     G.C.ANIM_CARDS[2] = lerp(0.9, 1,   f3)
     G.C.ANIM_CARDS[3] = lerp(0.2, 0.6, f3)
 
     -- purple <-> red
-
     G.C.ANIM_OVST[1] = lerp(0.6, 1,   f4)
     G.C.ANIM_OVST[2] = 0
     G.C.ANIM_OVST[3] = lerp(0.9, 0,   f4)
 
     -- dark grey <-> light grey (deck name)
-
     local v = lerp(0.25, 0.75, f5)
     G.C.ANIM_DICE[1] = v
     G.C.ANIM_DICE[2] = v
     G.C.ANIM_DICE[3] = v
+
+    -- canvas crossfade (lazy-init on first available frame)
+    init_dice_canvas()
+    if _dice_canvas and love.graphics.isActive() then
+        update_dice_canvas(f6)
+    end
 
     return orig_love_update(dt)
 end
@@ -101,8 +169,10 @@ end
 
 --Deck Images
 
-SMODS.Atlas { key = 'deck', path = 'deck.png', px = 71, py = 95, }
-SMODS.Atlas { key = 'creative_mode_deck', path = 'creative_mode_deck.png', px = 71, py = 95, }
+SMODS.Atlas { key = 'deck',               path = 'deck.png',               px = 71, py = 95 }
+SMODS.Atlas { key = 'creative_mode_deck', path = 'creative_mode_deck.png', px = 71, py = 95 }
+-- dice_anim starts as a copy of deck.png; its .image is swapped to a canvas at runtime
+SMODS.Atlas { key = 'dice_anim',          path = 'deck.png',               px = 71, py = 95 }
 
 --Decks
 
@@ -124,7 +194,7 @@ SMODS.Back {
             '{C:anim_joker}+1e100 Joker{} and {C:anim_consm}+1e100 Consumable{} Slots',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{}',
-            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
+            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
         },
     },
     apply = function(self)
@@ -138,7 +208,6 @@ SMODS.Back {
                 local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'sandbox_deck')
                 genesis:add_to_deck()
                 G.consumeables:emplace(genesis)
-                genesis:set_edition({ negative = true }, true)
             end
         return true end }))
     end,
@@ -170,13 +239,13 @@ SMODS.Back {
             '{C:red}+1e100{} Discards and {C:blue}+1e100{} Hands',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{} and {C:anim_ovst}Overstock Plus{}',
-            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
+            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
         },
     },
     apply = function(self)
         G.E_MANAGER:add_event(Event({ func = function()
             G.consumeables.config.card_limit = math.huge
-            local soul = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_soul', 'creative_mode_deck')
+            local soul = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_soul', 'creative_mode_deck/')
             soul:add_to_deck()
             G.consumeables:emplace(soul)
             soul:set_edition({ negative = true }, true)
@@ -184,7 +253,6 @@ SMODS.Back {
                 local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'creative_mode_deck')
                 genesis:add_to_deck()
                 G.consumeables:emplace(genesis)
-                genesis:set_edition({ negative = true }, true)
             end
         return true end }))
     end,
@@ -200,7 +268,7 @@ SMODS.Back {
 SMODS.Back {
     name = 'Child of the Dice Deck',
     key = 'Child_of_the_Dice_Deck',
-    atlas = 'deck',
+    atlas = 'dice_anim',   -- canvas crossfade between deck.png and creative_mode_deck.png
     pos = { x = 0, y = 0 },
     config = {
         joker_slot = 1e100,
@@ -215,7 +283,7 @@ SMODS.Back {
             '{C:anim_joker}+1e100 Joker{} and {C:anim_consm}+1e100 Consumable{} Slots',
             'You can select {C:anim_cards}all cards{} from {C:attention}Booster Packs{}',
             'Start run with {C:anim_ovst}Overstock{} and {C:anim_ovst}Overstock Plus{}',
-            'Gain a {C:dark_edition}Negative{} {C:spectral}The Soul{} and {C:spectral}Genesis{} (if Mayhem loaded)',
+            'Gain a {C:dark_edition}Negative{} copy of {C:spectral}The Soul{}',
             '{C:money}20${} and {C:legendary}+8{} Pack Size',
             'All {C:attention}cards{} in {C:attention}shop{} are {C:attention}50%{} {C:money}cheaper{}',
         },
@@ -236,7 +304,6 @@ SMODS.Back {
                 local genesis = create_card('Spectral', G.consumeables, nil, nil, nil, nil, 'c_may_genesis', 'Child_of_the_Dice_Deck')
                 genesis:add_to_deck()
                 G.consumeables:emplace(genesis)
-                genesis:set_edition({ negative = true }, true)
             end
             return true
         end }))
