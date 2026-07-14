@@ -21,6 +21,15 @@ G.C.PULSE_SANDBOX  = {0.06, 0.01, 0.03, 1}  -- Sandbox: dark crimson
 G.C.PULSE_CREATIVE = {0.07, 0.05, 0.18, 1}  -- Creative: deep violet
 G.C.PULSE_DICE     = {0.10, 0.02, 0.04, 1}  -- Child of the Dice: dark rose
 
+-- Per-deck vivid interior fill colors (mutated every frame; cycles through card art palette)
+G.C.FILL_SANDBOX   = {0.62, 0.00, 0.92, 1}
+G.C.FILL_CREATIVE  = {1.00, 0.82, 0.00, 1}
+G.C.FILL_DICE      = {1.00, 0.15, 0.65, 1}
+
+-- Unique colour reference for the Sandbox badge text — identifies our DynaText
+-- by reference equality in DynaText.draw so we can apply the text shader.
+G.C.SB_BADGE_TEXT = {1.0, 1.0, 1.0, 1.0}
+
 -- Per-deck animated wrapper border colors (bright, matches card art border palette)
 G.C.BORDER_SANDBOX  = {0.53, 0.0,  0.80, 1}  -- violet (Sandbox outer border color)
 G.C.BORDER_CREATIVE = {1.0,  0.75, 0.0,  1}  -- gold   (Creative outer border color)
@@ -44,6 +53,51 @@ local _DICE_BG_STOPS = {      -- blends both decks: rose → gold → violet →
     {0.18, 0.15, 0.02},
     {0.08, 0.03, 0.20},
     {0.12, 0.01, 0.04},
+}
+
+-- Vivid color cycles for the popup interior fill (pulled from ring colors / card art)
+local _SANDBOX_FILL_STOPS = {
+    {0.62, 0.00, 0.92},  -- violet
+    {0.90, 0.00, 0.15},  -- crimson
+    {0.48, 0.00, 0.75},  -- mid violet
+}
+local _CREATIVE_FILL_STOPS = {
+    {1.00, 0.82, 0.00},  -- bright gold
+    {0.55, 0.00, 0.92},  -- bright violet
+    {0.85, 0.55, 0.00},  -- amber-gold
+}
+local _DICE_FILL_STOPS = {
+    {1.00, 0.15, 0.65},  -- hot pink
+    {0.98, 0.88, 0.00},  -- bright yellow
+    {0.00, 0.72, 1.00},  -- bright cyan
+}
+
+-- Lightweight gradient tables for the "next_selection" nav button.
+-- Same structure as SMODS.Gradient: colour is read from self[1..4] each frame.
+-- update() uses G.TIMERS.REAL so no dt parameter needed.
+local function _make_sb_grad(stops, cycle)
+    local g = {colours = {}, cycle = cycle or 3}
+    for _, s in ipairs(stops) do
+        g.colours[#g.colours + 1] = {s[1], s[2], s[3], 1}
+    end
+    g[1], g[2], g[3], g[4] = 0, 0, 0, 1
+    g.update = function(self)
+        local nc = #self.colours
+        if nc < 2 then return end
+        local timer = (G.TIMERS.REAL * nc / self.cycle) % nc
+        local si = 1 + math.floor(timer)
+        local ei = si == nc and 1 or si + 1
+        local sc, ec = self.colours[si], self.colours[ei]
+        local blend = 0.5 * (1 - math.cos((timer % 1) * math.pi))
+        for i = 1, 4 do self[i] = (1 - blend) * sc[i] + blend * ec[i] end
+    end
+    return g
+end
+
+local _SB_BTN_GRAD = {
+    ['Sandbox Deck']           = _make_sb_grad(_SANDBOX_FILL_STOPS, 3),
+    ['Creative Mode Deck']     = _make_sb_grad(_CREATIVE_FILL_STOPS, 3),
+    ['Child of the Dice Deck'] = _make_sb_grad(_DICE_FILL_STOPS, 3),
 }
 
 -- Color stop cycles for wrapper borders (bright, pulled from card art)
@@ -202,11 +256,76 @@ local _ok, _err = pcall(function()
 end)
 if not _ok then print('[Sandbox] pulse shader failed: ' .. tostring(_err)) end
 
+-- Custom badge shader: plasma waves in violet/crimson palette.
+-- Uses screen_coords so the pattern scrolls across the badge regardless of position.
+local _badge_shader = nil
+local _badge_shader_ok = true
+local _ok2, _err2 = pcall(function()
+    _badge_shader = love.graphics.newShader([[
+        extern float time;
+        vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+            vec2 uv = sc / 90.0;
+
+            // Three overlapping travelling waves
+            float w1 = sin(uv.x * 3.2 - time * 2.1 + uv.y * 1.4) * 0.5 + 0.5;
+            float w2 = sin(uv.y * 4.1 + time * 1.6 + uv.x * 1.8) * 0.5 + 0.5;
+            float w3 = sin((uv.x - uv.y) * 5.0 - time * 1.3) * 0.5 + 0.5;
+            float p  = (w1 + w2 + w3) / 3.0;
+
+            // Map plasma value through dark → violet → crimson
+            vec3 dark    = vec3(0.03, 0.00, 0.05);
+            vec3 violet  = vec3(0.62, 0.00, 0.92);
+            vec3 crimson = vec3(0.90, 0.00, 0.15);
+            vec3 col = p < 0.5
+                ? mix(dark,   violet,  p * 2.0)
+                : mix(violet, crimson, (p - 0.5) * 2.0);
+
+            return vec4(col, 1.0) * color;
+        }
+    ]])
+end)
+if not _ok2 then
+    _badge_shader_ok = false
+    print('[Sandbox] badge shader failed: ' .. tostring(_err2))
+end
+
+-- Badge text shader: animated white/grey/black waves through the letter shapes.
+-- Samples the glyph texture for alpha (preserves letter outlines) and replaces
+-- the colour with a greyscale plasma so the letters shimmer against the badge bg.
+local _badge_text_shader = nil
+local _ok3, _err3 = pcall(function()
+    _badge_text_shader = love.graphics.newShader([[
+        extern float time;
+        vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+            vec4 glyph = Texel(tex, tc);
+
+            vec2 uv = sc / 80.0;
+            float w1 = sin(uv.x * 5.0 - time * 4.0) * 0.5 + 0.5;
+            float w2 = sin(uv.y * 4.5 + time * 3.0 + uv.x * 2.5) * 0.5 + 0.5;
+            float w3 = sin((uv.x + uv.y) * 3.5 - time * 2.5) * 0.5 + 0.5;
+            float grey = (w1 + w2 + w3) / 3.0;
+
+            // Bias toward brighter so text stays readable: range ~0.35..1.0
+            grey = 0.35 + grey * 0.65;
+
+            return vec4(grey, grey, grey, glyph.a * color.a);
+        }
+    ]])
+end)
+if not _ok3 then print('[Sandbox] badge text shader failed: ' .. tostring(_err3)) end
+
 -- Deck name → pulse colour table; also used as a truthy presence check
 local _BACK_PULSE = {
     ['Sandbox Deck']           = G.C.PULSE_SANDBOX,
     ['Creative Mode Deck']     = G.C.PULSE_CREATIVE,
     ['Child of the Dice Deck'] = G.C.PULSE_DICE,
+}
+
+-- Deck name → vivid interior fill color (bright, cycles through card art palette)
+local _FILL_VIVID = {
+    ['Sandbox Deck']           = G.C.FILL_SANDBOX,
+    ['Creative Mode Deck']     = G.C.FILL_CREATIVE,
+    ['Child of the Dice Deck'] = G.C.FILL_DICE,
 }
 
 -- Deck name → border colour table (for the white wrapper ring)
@@ -355,14 +474,14 @@ end
 
 -- Weak set of UIElements whose draw_self backgrounds should be suppressed
 -- because they sit inside a popup container (our rounded dark fill handles it).
-local _popup_inner_els = setmetatable({}, {__mode = 'k'})
+local _popup_inner_els   = setmetatable({}, {__mode = 'k'})
 
 -- Draw the ring pattern for the popup container element from within
 -- UIElement.draw_self, using the element's own VT as the coordinate origin.
 -- This fires at exactly the right Z-order: after the black outer elements,
 -- before the R-row children, so rings show in the border and dark fills
 -- the interior which children then paint over.
-local function _draw_rings_for_el(el, rings)
+local function _draw_rings_for_el(el, ring_id, rings)
     if not (el.VT and el.VT.w and el.VT.w > 0) then return end
     local r_col, g_col, b_col, a_col = love.graphics.getColor()
     local t       = (G.TIMERS and G.TIMERS.REAL) or love.timer.getTime()
@@ -371,7 +490,7 @@ local function _draw_rings_for_el(el, rings)
     local ew = el.VT.w * G.TILESIZE
     local eh = el.VT.h * G.TILESIZE
     local n  = #rings
-    local bw = 0.1 * G.TILESIZE / n   -- fill the 0.1-tile border band exactly
+    local bw = 0.1 * G.TILESIZE / n
     prep_draw(el, 1)
     love.graphics.scale(1 / G.TILESIZE)
     -- Painter: outermost ring fills full area, each inner ring covers the previous
@@ -382,11 +501,15 @@ local function _draw_rings_for_el(el, rings)
         love.graphics.setColor(rc[1]*bright, rc[2]*bright, rc[3]*bright, 1.0)
         love.graphics.rectangle('fill', off, off, ew - 2*off, eh - 2*off, rr, rr)
     end
-    -- Dark interior — R-row children will draw on top of this
-    local ioff = n * bw
-    love.graphics.setColor(0.04, 0.02, 0.04, 1.0)
-    love.graphics.rectangle('fill', ioff, ioff, ew - 2*ioff, eh - 2*ioff,
-        rr_base, rr_base)
+    -- Interior fill: vivid cycling color matching the deck's card art palette
+    local ioff  = n * bw
+    local vcol  = _FILL_VIVID[ring_id]
+    if vcol then
+        love.graphics.setColor(vcol[1], vcol[2], vcol[3], 1.0)
+    else
+        love.graphics.setColor(0.08, 0.04, 0.02, 1.0)
+    end
+    love.graphics.rectangle('fill', ioff, ioff, ew - 2*ioff, eh - 2*ioff, rr_base, rr_base)
     love.graphics.pop()
     love.graphics.setColor(r_col, g_col, b_col, a_col)
 end
@@ -396,16 +519,51 @@ UIElement.draw_self = function(self)
     -- Intercept the gray C popup container: replace its background with rings.
     -- This fires at the right Z-order (after outer black elements, before R children).
     -- Suppress background for R rows inside the popup — our rounded dark fill handles it
+
     if _popup_inner_els[self] then return end
+
+    -- Swirl the Sandbox mod badge with the main-menu background.fs shader.
+    -- The badge is a G.UIT.R with colour == G.C.FILL_SANDBOX (set by us) and a
+    -- child O element whose id is 'smods_mod_badge_text'.
+    if self.UIT == G.UIT.R
+    and self.config and self.config.colour == G.C.FILL_SANDBOX
+    and self.VT and self.VT.w and self.VT.w > 0 then
+        -- Verify it's actually a mod badge (has the badge text child)
+        local is_badge = false
+        for _, ch in ipairs(self.children or {}) do
+            if type(ch) == 'table' and ch.UIT == G.UIT.O
+            and ch.config and ch.config.id == 'smods_mod_badge_text' then
+                is_badge = true; break
+            end
+        end
+        if is_badge and _badge_shader then
+            local t  = (G.TIMERS and G.TIMERS.REAL) or love.timer.getTime()
+            local ok = pcall(_badge_shader.send, _badge_shader, 'time', t)
+            if ok then
+                local r_col, g_col, b_col, a_col = love.graphics.getColor()
+                love.graphics.setColor(1, 1, 1, 1)
+                prep_draw(self, 1)
+                love.graphics.scale(1 / G.TILESIZE)
+                love.graphics.setShader(_badge_shader)
+                local rr = (self.config.r or 0.1) * G.TILESIZE
+                love.graphics.rectangle('fill', 0, 0, self.VT.w * G.TILESIZE, self.VT.h * G.TILESIZE, rr, rr)
+                love.graphics.setShader()
+                love.graphics.pop()
+                love.graphics.setColor(r_col, g_col, b_col, a_col)
+                return
+            end
+        end
+    end
 
     if self.UIT == G.UIT.C and self.config and self.config.r and self.config.r > 0 then
         local ring_id = _find_desc_deck_id(self, 1, 6)
         if ring_id then
             local rings = _DESC_RING_COLORS[ring_id]
-            if rings then _draw_rings_for_el(self, rings) end
-            -- Register direct children so their own backgrounds are skipped
+            if rings then _draw_rings_for_el(self, ring_id, rings) end
             for _, ch in ipairs(self.children or {}) do
-                if type(ch) == 'table' then _popup_inner_els[ch] = true end
+                if type(ch) == 'table' then
+                    _popup_inner_els[ch] = true
+                end
             end
             return  -- skip original gray background draw
         end
@@ -426,6 +584,26 @@ UIElement.draw_self = function(self)
     _orig_UIElement_draw_self(self)
 
     if apply then love.graphics.setShader() end
+end
+
+
+-- Greyscale shader on the "Sandbox" badge label text.
+-- DynaText.draw iterates letters and calls love.graphics.draw(letter.letter) directly.
+-- Setting the shader before the original draw wraps all letter draws in one call.
+-- Identified by colours[1] == G.C.SB_BADGE_TEXT (unique table reference).
+local _orig_DynaText_draw = DynaText.draw
+DynaText.draw = function(self)
+    if _badge_text_shader and self.colours and self.colours[1] == G.C.SB_BADGE_TEXT then
+        local t  = (G.TIMERS and G.TIMERS.REAL) or love.timer.getTime()
+        local ok = pcall(_badge_text_shader.send, _badge_text_shader, 'time', t)
+        if ok then
+            love.graphics.setShader(_badge_text_shader)
+            _orig_DynaText_draw(self)
+            love.graphics.setShader()
+            return
+        end
+    end
+    _orig_DynaText_draw(self)
 end
 
 -- Fill the outer white wrapper by drawing directly in UIBox.draw.
@@ -465,8 +643,9 @@ UIBox.draw = function(self)
         love.graphics.setColor(pulse_col[1], pulse_col[2], pulse_col[3], 1)
         prep_draw(self, 1)
         love.graphics.scale(1 / G.TILESIZE)
+        local rr = (self.config and self.config.r or 0.08) * G.TILESIZE
         love.graphics.rectangle('fill', 0, 0,
-            self.VT.w * G.TILESIZE, self.VT.h * G.TILESIZE)
+            self.VT.w * G.TILESIZE, self.VT.h * G.TILESIZE, rr, rr)
         love.graphics.pop()
         love.graphics.setShader(prev_shader)
         love.graphics.setColor(r_col, g_col, b_col, a_col)
@@ -495,8 +674,19 @@ local function cycle_bg(stops, speed)
            lerp(c1[3], c2[3], frac)
 end
 
+local _badge_init = false
 local orig_love_update = love.update
 love.update = function(dt)
+    -- Animate the mod badge colour on first frame (SMODS.Mods is ready by then)
+    if not _badge_init then
+        _badge_init = true
+        local sb_mod = SMODS and SMODS.Mods and SMODS.Mods['Sandbox']
+        if sb_mod then
+            sb_mod.badge_colour      = G.C.FILL_SANDBOX  -- badge background → plasma shader
+            sb_mod.badge_text_colour = G.C.SB_BADGE_TEXT -- badge text → greyscale shader
+        end
+    end
+
     _anim_t = _anim_t + dt * 1.5
     local f1 = (math.sin(_anim_t + 0.0) + 1) / 2
     local f2 = (math.sin(_anim_t + 1.1) + 1) / 2
@@ -542,6 +732,14 @@ love.update = function(dt)
         = cycle_bg(_CREATIVE_BG_STOPS, 0.12)   -- slow violet/gold cycle
     G.C.PULSE_DICE[1],     G.C.PULSE_DICE[2],     G.C.PULSE_DICE[3]
         = cycle_bg(_DICE_BG_STOPS,     0.20)   -- slightly faster, blended cycle
+
+    -- Vivid interior fill colors (bright, matches card art color cycle)
+    G.C.FILL_SANDBOX[1],  G.C.FILL_SANDBOX[2],  G.C.FILL_SANDBOX[3]
+        = cycle_bg(_SANDBOX_FILL_STOPS, 0.20)
+    G.C.FILL_CREATIVE[1], G.C.FILL_CREATIVE[2], G.C.FILL_CREATIVE[3]
+        = cycle_bg(_CREATIVE_FILL_STOPS, 0.20)
+    G.C.FILL_DICE[1],     G.C.FILL_DICE[2],     G.C.FILL_DICE[3]
+        = cycle_bg(_DICE_FILL_STOPS, 0.20)
 
     -- Per-deck wrapper border colors (brighter, matches card art border palette)
     G.C.BORDER_SANDBOX[1],  G.C.BORDER_SANDBOX[2],  G.C.BORDER_SANDBOX[3]
